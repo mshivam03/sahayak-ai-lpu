@@ -33,7 +33,7 @@ if "messages" not in st.session_state: st.session_state.messages = []
 if "last_booking" not in st.session_state: st.session_state.last_booking = None
 if "use_camera" not in st.session_state: st.session_state.use_camera = False
 
-# 3. SIDEBAR: PRIVACY & CONTROLS
+# 3. SIDEBAR: PRIVACY & LOCATION
 with st.sidebar:
     st.title("🛠️ Sahayak Settings")
     st.write(f"**Dev:** Shivam Kumar (12514900)")
@@ -47,65 +47,69 @@ with st.sidebar:
         if img_file:
             img = Image.open(img_file)
             with st.spinner("Gemini is analyzing..."):
-                v_res = vision_model.generate_content(["Identify the service needed from this image. Return ONLY the service name.", img])
+                v_res = vision_model.generate_content(["Identify the service name from this image. Return ONLY the service name.", img])
                 st.session_state.voice_input = f"I need a {v_res.text} service."
                 st.success(f"Detected: {v_res.text}")
-    else:
-        st.info("Camera is currently OFF for your privacy.")
-
+    
     st.divider()
     st.subheader("📍 Real-time Location")
-    # Simulation of Dynamic Location (LPU default)
     u_lat = st.number_input("Your Latitude", value=31.254, format="%.4f")
     u_lon = st.number_input("Your Longitude", value=75.705, format="%.4f")
 
-# 4. BRAIN: INTENT CLASSIFICATION
-input_text = None
-if "voice_input" in st.session_state:
-    input_text = st.session_state.voice_input
-    del st.session_state.voice_input
-elif p := st.chat_input("Ask Sahayak anything..."):
-    input_text = p
-
-if input_text:
-    st.session_state.messages.append({"role": "user", "content": input_text})
-    
-    completion = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[
-            {"role": "system", "content": "You are Sahayak AI by Shivam Kumar. Categorize: 1. Service Request (JSON) 2. General Chat (JSON)."},
-            {"role": "user", "content": input_text}
-        ],
-        response_format={"type": "json_object"}
-    )
-    res = json.loads(completion.choices[0].message.content)
-
-    if res.get("type") == "chat":
-        st.session_state.messages.append({"role": "assistant", "content": res.get("reply")})
-    else:
-        service = res.get('service', 'General').title()
-        # DYNAMIC DISTANCE CALCULATION
-        agent_lat, agent_lon = 31.280, 75.720 
-        dist = calculate_distance(u_lat, u_lon, agent_lat, agent_lon)
-        
-        st.session_state.last_booking = {
-            "service": service,
-            "dist": dist,
-            "total": 299 + round(dist * 15, 2),
-            "otp": "4900",
-            "agent": "Rajesh Kumar (LPU)"
-        }
-        st.session_state.messages.append({"role": "assistant", "content": res.get("reply")})
-        requests.post(REQUESTBIN_URL, json=st.session_state.last_booking)
-
-# 5. MAIN UI
+# 4. MAIN UI & BRAIN
 st.title("🤖 Sahayak AI: Pro")
 c1, c2 = st.columns([1, 1.2])
 
 with c1:
     st.subheader("💬 Chat Session")
+    
+    # --- VOICE BUTTON MOVED HERE ---
+    if st.button("🎙️ Tap to Speak (Bolo Shivam)", use_container_width=True):
+        try:
+            r = sr.Recognizer()
+            with sr.Microphone() as source:
+                st.toast("Listening...")
+                audio = r.listen(source, timeout=5)
+                st.session_state.voice_input = r.recognize_google(audio, language='hi-IN')
+                st.rerun()
+        except Exception as e:
+            st.error("Mic access limited to Localhost. Use Text Input for Cloud demo.")
+
     for msg in st.session_state.messages[-3:]:
         with st.chat_message(msg["role"]): st.write(msg["content"])
+
+    # INPUT LOGIC
+    input_text = None
+    if "voice_input" in st.session_state:
+        input_text = st.session_state.voice_input
+        del st.session_state.voice_input
+    elif p := st.chat_input("Ask Sahayak anything..."):
+        input_text = p
+
+    if input_text:
+        st.session_state.messages.append({"role": "user", "content": input_text})
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[
+                {"role": "system", "content": "You are Sahayak AI by Shivam Kumar. Categorize: 1. Service Request (JSON) 2. General Chat (JSON)."},
+                {"role": "user", "content": input_text}
+            ],
+            response_format={"type": "json_object"}
+        )
+        res = json.loads(completion.choices[0].message.content)
+
+        if res.get("type") == "chat":
+            st.session_state.messages.append({"role": "assistant", "content": res.get("reply")})
+        else:
+            service = res.get('service', 'General').title()
+            agent_lat, agent_lon = 31.280, 75.720 
+            dist = calculate_distance(u_lat, u_lon, agent_lat, agent_lon)
+            st.session_state.last_booking = {
+                "service": service, "dist": dist,
+                "total": 299 + round(dist * 15, 2), "otp": "4900", "agent": "Rajesh Kumar (LPU)"
+            }
+            st.session_state.messages.append({"role": "assistant", "content": res.get("reply")})
+            requests.post(REQUESTBIN_URL, json=st.session_state.last_booking)
 
 with c2:
     if b := st.session_state.last_booking:
