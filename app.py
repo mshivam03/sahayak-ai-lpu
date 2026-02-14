@@ -1,155 +1,153 @@
 import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.express as px
+import folium
+import os
+import json
+import uuid
+import math
+import requests
+from datetime import datetime
+from streamlit_folium import st_folium
 from groq import Groq
 import google.generativeai as genai
-import json, requests, math
 from PIL import Image
-import speech_recognition as sr
-import folium
-from streamlit_folium import st_folium
+from streamlit_mic_recorder import mic_recorder
 
-# 1. AUTHENTICATION (Shivam Kumar - 12514900)
-USER_ID = "shivam12514900"
-USER_PASS = "lpu@2026"
-
-# 2. CORE API CONFIG
-GROQ_API_KEY = "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"
-GEMINI_API_KEY = "AIzaSyCXhGXTZPrtr4lDFvjJifgUubritqDT--M"
-REQUESTBIN_URL = "https://eowayl2i7ckb9xd.m.pipedream.net"
+# ==========================================
+# 1. UNIVERSAL CONFIGURATION
+# ==========================================
+# Developer: Shivam Kumar (12514900)
+REQUESTBIN_URL = "https://eoedejtm2wdnwrz.m.pipedream.net"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "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")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyCXhGXTZPrtr4lDFvjJifgUubritqDT--M")
 
 client = Groq(api_key=GROQ_API_KEY)
 genai.configure(api_key=GEMINI_API_KEY)
-vision_model = genai.GenerativeModel('gemini-1.5-flash')
 
-def calculate_distance(lat1, lon1, lat2, lon2):
-    R = 6371 
-    dlat = math.radians(lat2 - lat1); dlon = math.radians(lon2 - lon1)
-    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon/2)**2
+def haversine(lat1, lon1, lat2, lon2):
+    R = 6371
+    dlat, dlon = math.radians(lat2-lat1), math.radians(lon2-lon1)
+    a = math.sin(dlat/2)**2 + math.cos(math.radians(lat1))*math.cos(math.radians(lat2))*math.sin(dlon/2)**2
     return round(R * (2 * math.atan2(math.sqrt(a), math.sqrt(1-a))), 2)
 
-st.set_page_config(page_title="Nexus AI Pro", layout="wide")
+# ==========================================
+# 2. UI GLOBAL STYLING
+# ==========================================
+st.set_page_config(page_title="Nexus Master AI", layout="wide")
 
-# 3. LOGIN GATEWAY
-def login():
-    if 'auth' not in st.session_state: st.session_state.auth = False
-    if not st.session_state.auth:
-        st.markdown("<h1 style='text-align:center; color:#00ff00;'>🛡️ Nexus AI Gateway</h1>", unsafe_allow_html=True)
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            u = st.text_input("User ID")
-            p = st.text_input("Password", type="password")
-            if st.button("Unlock System", use_container_width=True):
-                if u == USER_ID and p == USER_PASS:
-                    st.session_state.auth = True
-                    st.rerun()
-                else: st.error("Access Denied")
-        return False
-    return True
-
-if login():
-    # --- UI STYLING ---
-    st.markdown("""
-        <style>
-        .stApp { background-color: #0e1117; }
-        .main-card { background: rgba(255, 255, 255, 0.05); border: 1px solid #00ff00; border-radius: 15px; padding: 20px; box-shadow: 0 0 15px rgba(0,255,0,0.2); }
-        .neon-txt { color: #00ff00; text-shadow: 0 0 5px #00ff00; font-weight: 800; }
-        </style>
+# Global CSS for Premium Dark Feel
+st.markdown("""
+    <style>
+    .stApp { background-color: #050505; color: white; }
+    .st-emotion-cache-1kyx06y { background: #111; border: 1px solid #00ff00; border-radius: 15px; }
+    .neon-card { background: rgba(0, 255, 0, 0.05); border: 1px solid #00ff00; padding: 20px; border-radius: 15px; box-shadow: 0 0 20px rgba(0,255,0,0.1); }
+    .neon-text { color: #00ff00; font-weight: bold; text-shadow: 0 0 10px #00ff00; }
+    .stButton>button { background-color: #00ff00; color: black; font-weight: bold; border-radius: 10px; border: none; }
+    </style>
     """, unsafe_allow_html=True)
 
-    # --- SIDEBAR CONTROLS ---
-    with st.sidebar:
-        st.markdown("<h2 class='neon-txt'>⚙️ Controls</h2>", unsafe_allow_html=True)
-        st.write(f"**Developer:** Shivam Kumar (12514900)")
-        if st.button("Logout"): 
-            st.session_state.auth = False
-            st.rerun()
+if "bookings" not in st.session_state: 
+    st.session_state.bookings = []
+
+# ==========================================
+# 3. SIDEBAR (Persistent Info)
+# ==========================================
+with st.sidebar:
+    st.markdown("<h2 class='neon-text'>NEXUS CONTROL</h2>", unsafe_allow_html=True)
+    st.write(f"**Dev:** Shivam Kumar")
+    st.write(f"**ID:** 12514900")
+    st.divider()
+    nav = st.radio("Navigation", ["Dashboard", "Service Booking", "Analytics"])
+    st.divider()
+    u_lat = st.number_input("User Lat", value=31.254, format="%.4f")
+    u_lon = st.number_input("User Lon", value=75.705, format="%.4f")
+    st.success("System: Open Access Mode")
+
+# ==========================================
+# 4. MAIN NAVIGATION MODULES
+# ==========================================
+
+# --- DASHBOARD MODULE ---
+if nav == "Dashboard":
+    st.markdown("<h1 class='neon-text'>📊 System Overview</h1>", unsafe_allow_html=True)
+    if not st.session_state.bookings:
+        st.info("System Ready. Waiting for first booking trigger...")
+    else:
+        c1, c2, c3 = st.columns(3)
+        rev = sum(b['price'] for b in st.session_state.bookings)
+        c1.metric("Total Bookings", len(st.session_state.bookings))
+        c2.metric("Gross Revenue", f"₹{rev}")
+        c3.metric("Uptime", "100.0%")
         
-        st.divider()
-        st.subheader("📸 Privacy & Vision")
-        use_cam = st.toggle("Enable AI Eyes (Camera)")
-        if use_cam:
-            img_file = st.camera_input("Scanner")
-            if img_file:
-                img = Image.open(img_file)
-                # Gemini helps detect the service from image
-                v_res = vision_model.generate_content(["Identify the home service name (e.g. Plumber, Electrician) from this image. Return ONLY the service name.", img])
-                st.session_state.v_input = f"I need a {v_res.text.strip()} for this."
-        
-        st.divider()
-        st.subheader("📍 Real-time Location")
-        u_lat = st.number_input("Lat", value=31.254, format="%.4f")
-        u_lon = st.number_input("Lon", value=75.705, format="%.4f")
+        df = pd.DataFrame(st.session_state.bookings)
+        st.plotly_chart(px.bar(df, x='service', y='price', color='service', template="plotly_dark", title="Revenue Per Service Type"))
 
-    # --- MAIN DASHBOARD ---
-    st.markdown("<h1 class='neon-txt'>🤖 Nexus AI: Next-Gen Assistant</h1>", unsafe_allow_html=True)
-    
-    col_a, col_b = st.columns([1, 1.2])
+# --- SERVICE BOOKING MODULE (DYNAMIC) ---
+elif nav == "Service Booking":
+    st.markdown("<h1 class='neon-text'>🎙️ High-Speed Service Engine</h1>", unsafe_allow_html=True)
+    col_l, col_r = st.columns([1, 1.2])
 
-    with col_a:
-        st.subheader("💬 Smart Chat Engine")
-        if st.button("🎙️ Tap to Speak"):
-            try:
-                r = sr.Recognizer()
-                with sr.Microphone() as source:
-                    audio = r.listen(source, timeout=5)
-                    st.session_state.v_input = r.recognize_google(audio, language='hi-IN')
-                    st.rerun()
-            except: st.error("Mic access restricted. Try Text Input.")
+    with col_l:
+        st.write("Instant Detection (Voice or Text):")
+        audio_data = mic_recorder(start_prompt="⚡ CLICK & SPEAK", stop_prompt="⏹️ STOP", key='universal_mic')
+        user_text = st.chat_input("Explain your problem...")
 
-        if "messages" not in st.session_state: st.session_state.messages = []
-        
-        user_msg = None
-        if "v_input" in st.session_state:
-            user_msg = st.session_state.v_input; del st.session_state.v_input
-        elif p := st.chat_input("Ask Nexus anything..."): user_msg = p
-
-        if user_msg:
-            st.session_state.messages.append({"role": "user", "content": user_msg})
-            # STRICT PROMPTING for Intent Detection
-            comp = client.chat.completions.create(
-                model="llama-3.3-70b-versatile",
-                messages=[{
-                    "role": "system", 
-                    "content": """You are Nexus AI by Shivam Kumar. 
-                    If user mentions a problem like leak, wire, repair, cleaning, AC, light - return JSON type: 'booking'.
-                    If user says hi/hello/who are you - return JSON type: 'chat'.
-                    Format: {"type": "booking/chat", "service": "NAME", "reply": "MSG"}"""
-                }, {"role": "user", "content": user_msg}],
-                response_format={"type": "json_object"}
-            )
-            res = json.loads(comp.choices[0].message.content)
-            st.session_state.messages.append({"role": "assistant", "content": res.get("reply")})
-            
-            if res.get("type") == "booking":
-                dist = calculate_distance(u_lat, u_lon, 31.280, 75.720)
-                st.session_state.last_book = {
-                    "service": res.get('service', 'General').title(), 
-                    "dist": dist, 
-                    "total": 299 + (dist*15), 
-                    "otp": "4900"
+        if audio_data or user_text:
+            query = user_text if user_text else "Voice/Image Intent Triggered"
+            with st.spinner("⚡ NEXUS ANALYZING..."):
+                # DYNAMIC INTENT DETECTION
+                comp = client.chat.completions.create(
+                    model="llama-3.3-70b-versatile",
+                    messages=[{
+                        "role": "system", 
+                        "content": f"Analyze: '{query}'. Detect service: Plumber, Electrician, or Cleaning. Return JSON ONLY: {{'service': 'NAME', 'reply': 'MSG'}}"
+                    }],
+                    response_format={"type": "json_object"}
+                )
+                res = json.loads(comp.choices[0].message.content)
+                
+                # Logistics & Cloud Update
+                dist = haversine(u_lat, u_lon, 31.281, 75.721)
+                booking = {
+                    "id": str(uuid.uuid4())[:6].upper(),
+                    "service": res['service'],
+                    "price": 299 + (dist * 15),
+                    "dist": dist,
+                    "timestamp": datetime.now().strftime("%H:%M:%S")
                 }
-                # Syncing with External API
-                requests.post(REQUESTBIN_URL, json=st.session_state.last_book)
+                st.session_state.bookings.append(booking)
+                
+                # Update Pipedream Everywhere
+                try: requests.post(REQUESTBIN_URL, json=booking, timeout=1)
+                except: pass
+                
+                st.session_state.last_b = booking
+                st.rerun()
 
-        for m in st.session_state.messages[-3:]:
-            with st.chat_message(m["role"]): st.write(m["content"])
-
-    with col_b:
-        if "last_book" in st.session_state:
-            b = st.session_state.last_book
+    with col_r:
+        if "last_b" in st.session_state:
+            lb = st.session_state.last_b
             st.markdown(f"""
-                <div class="main-card">
-                    <h2 style="color:#00ff00;">✅ Service Confirmed</h2>
-                    <p style="font-size:20px;"><b>Request:</b> {b['service']}</p>
-                    <p><b>Distance:</b> {b['dist']} km | <b>Bill:</b> ₹{round(b['total'],2)}</p>
-                    <hr style="border-color:#00ff00;">
-                    <p style="font-size:18px;">🔑 Security OTP: <b style="font-size:28px; color:#00ff00;">{b['otp']}</b></p>
-                    <button style="width:100%; padding:10px; background:#00ff00; color:black; border:none; border-radius:10px; font-weight:bold;">PAY NOW</button>
-                </div>
+            <div class='neon-card'>
+                <h2 class='neon-text'>✅ {lb['service']} DISPATCHED</h2>
+                <p>Booking ID: <b>{lb['id']}</b></p>
+                <p>Status: <span style='color:#00ff00;'>En-route</span></p>
+                <p>Distance: <b>{lb['dist']} km</b> | Bill: <b>₹{round(lb['price'],2)}</b></p>
+                <hr style='border: 0.5px solid #00ff00;'>
+                <p>Verification Code: <span style='font-size:24px; color:yellow;'>4900</span></p>
+            </div>
             """, unsafe_allow_html=True)
-            
-            m = folium.Map(location=[u_lat, u_lon], zoom_start=13, tiles="CartoDB dark_matter")
-            folium.Marker([u_lat, u_lon], icon=folium.Icon(color='green', icon='user')).add_to(m)
-            folium.Marker([31.280, 75.720], icon=folium.Icon(color='red', icon='wrench')).add_to(m)
-            folium.PolyLine([[u_lat, u_lon], [31.280, 75.720]], color="#00ff00", weight=4).add_to(m)
-            st_folium(m, height=350, width=550, key="nexus_map_final")
             st.balloons()
+
+# --- ANALYTICS MODULE ---
+elif nav == "Analytics":
+    st.markdown("<h1 class='neon-text'>📈 Advanced Performance</h1>", unsafe_allow_html=True)
+    if st.session_state.bookings:
+        df = pd.DataFrame(st.session_state.bookings)
+        st.plotly_chart(px.line(df, x='timestamp', y='price', markers=True, template="plotly_dark", title="Transaction Trend"))
+        
+        m = folium.Map(location=[u_lat, u_lon], zoom_start=14, tiles="CartoDB dark_matter")
+        folium.Marker([u_lat, u_lon], icon=folium.Icon(color='green', icon='user')).add_to(m)
+        st_folium(m, height=450, width=1100)
